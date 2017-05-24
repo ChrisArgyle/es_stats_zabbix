@@ -5,6 +5,7 @@ import elasticsearch
 from es_stats import *
 from .utils import *
 from ._version import __version__
+from pyzabbix import ZabbixMetric, ZabbixSender
 import logging
 
 try:
@@ -132,7 +133,6 @@ def batch(ctx, name):
     if name not in ctx.obj['batches']:
         click.echo(click.style('Batch {0} not found in configuration file.'.format(name), fg='red', bold=True))
         sys.exit(1)
-    from zbxsend import Metric, send_to_zabbix
     b = ctx.obj['batches'][name]
     logger.debug('Batch config args: {0}'.format(b))
     metrics = []
@@ -160,10 +160,16 @@ def batch(ctx, name):
             if result == DotMap():
                 result = 'ZBX_NOTSUPPORTED'
             # We do not have the key here, so we need to rebuild it.
-            metrics.append(Metric(zhost, ztuple[0] + '[' + ztuple[2] + ']', result))
+            # include the node name if we're sending per-node metrics
+            if ztuple[0].startswith("node"):
+                key_name = "{}[{},{}]".format(ztuple[0], ztuple[1], ztuple[2])
+            else:
+                key_name = "{}[{}]".format(ztuple[0], ztuple[2])
+            metrics.append(ZabbixMetric(zhost, key_name, result))
 
     logger.debug('Metrics: {0}'.format(metrics))
-    result = send_to_zabbix(metrics, zserver, zport)
+    sender = ZabbixSender(zserver)
+    result = sender.send(metrics)
     logger.debug('Result = {0}'.format(result))
     # Spit out exit code to stdout
     click.echo(0 if result else 1)
